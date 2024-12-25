@@ -3,4 +3,4 @@
 
 ## Note:
 
-40xrecursive.sh - combine all the techniques and save the result in bypass_results.log
+40xrecursive.sh - combine all the techniques and save the result in "bypass_results.log" file.
